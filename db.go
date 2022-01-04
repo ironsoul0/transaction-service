@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -22,12 +23,19 @@ type Repo struct {
 	db *sql.DB
 }
 
+type Transfer struct {
+	ToWalletID int64     `json:"to_wallet_id"`
+	Amount     int64     `json:"amount"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type Wallet struct {
-	ID        int64     `json:"id"`
-	Owner     int64     `json:"owner"`
-	Code      string    `json:"code"`
-	CreatedAt time.Time `json:"created_at"`
-	Balance   int64     `json:"balance"`
+	ID        int64       `json:"id"`
+	Owner     int64       `json:"owner"`
+	Code      string      `json:"code"`
+	CreatedAt time.Time   `json:"created_at"`
+	Balance   int64       `json:"balance"`
+	Transfers []*Transfer `json:"transfers"`
 }
 
 func NewRepo(DSN string) (*Repo, error) {
@@ -50,6 +58,24 @@ func generateCode() string {
 		id[i] = byte('0' + rand.Intn(10))
 	}
 	return string(id)
+}
+
+func (r *Repo) getTransfers(walletID int64) ([]*Transfer, error) {
+	query := "SELECT amount, created_at, to_wallet_id FROM transfers WHERE from_wallet_id = ?"
+	rows, err := r.db.Query(query, walletID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	transfers := make([]*Transfer, 0)
+	for rows.Next() {
+		transfer := &Transfer{}
+		rows.Scan(&transfer.Amount, &transfer.CreatedAt, &transfer.ToWalletID)
+		transfers = append(transfers, transfer)
+	}
+
+	return transfers, nil
 }
 
 func (r *Repo) createWallet(owner int64) (*Wallet, error) {
@@ -97,13 +123,29 @@ func (r *Repo) getWallets(owner *int64) ([]*Wallet, error) {
 	}
 	defer rows.Close()
 
-	wallets := make([]*Wallet, 0)
+	var wg sync.WaitGroup
+	walletsCh := make(chan *Wallet)
+
 	for rows.Next() {
 		wallet := &Wallet{}
-		err = rows.Scan(&wallet.ID, &wallet.Owner, &wallet.Code, &wallet.CreatedAt, &wallet.Balance)
-		if err != nil {
-			return nil, fmt.Errorf("getWallets: %w", err)
-		}
+		rows.Scan(&wallet.ID, &wallet.Owner, &wallet.Code, &wallet.CreatedAt, &wallet.Balance)
+		wg.Add(1)
+
+		go func(wallet *Wallet) {
+			transfers, _ := r.getTransfers(wallet.ID)
+			wallet.Transfers = transfers
+			walletsCh <- wallet
+			wg.Done()
+		}(wallet)
+	}
+
+	go func() {
+		wg.Wait()
+		close(walletsCh)
+	}()
+
+	wallets := make([]*Wallet, 0)
+	for wallet := range walletsCh {
 		wallets = append(wallets, wallet)
 	}
 

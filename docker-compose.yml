@@ -25,10 +25,5 @@ services:
     depends_on:
       database:
         condition: service_healthy
-
-    networks:
-      - default
     ports:
     - "8081:8080"
-volumes:
-  data:
