@@ -19,7 +19,7 @@ type TokenPayload struct {
 	ID       int64  `json:"id"`
 	IIN      string `json:"iin"`
 	Username string `json:"username"`
-	Role     string `json:"payload"`
+	Role     string `json:"role"`
 }
 
 func (s *Server) parseToken(token string, isAccess bool) (*TokenPayload, error) {

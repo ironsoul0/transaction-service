@@ -9,6 +9,7 @@ type Config struct {
 	AccessSecret  string `mapstructure:"ACCESS_SECRET"`
 	RefreshSecret string `mapstructure:"REFRESH_SECRET"`
 	Port          string `mapstructure:"PORT"`
+	Origin        string `mapstructure:"ORIGIN"`
 }
 
 func LoadConfig(path string) (config Config, err error) {

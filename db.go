@@ -24,9 +24,9 @@ type Repo struct {
 }
 
 type Transfer struct {
-	ToWalletID int64     `json:"to_wallet_id"`
-	Amount     int64     `json:"amount"`
-	CreatedAt  time.Time `json:"created_at"`
+	ToWalletCode string    `json:"to_wallet_code"`
+	Amount       int64     `json:"amount"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Wallet struct {
@@ -60,9 +60,9 @@ func generateCode() string {
 	return string(id)
 }
 
-func (r *Repo) getTransfers(walletID int64) ([]*Transfer, error) {
-	query := "SELECT amount, created_at, to_wallet_id FROM transfers WHERE from_wallet_id = ?"
-	rows, err := r.db.Query(query, walletID)
+func (r *Repo) getTransfers(walletCode string) ([]*Transfer, error) {
+	query := "SELECT amount, created_at, to_wallet_code FROM transfers WHERE from_wallet_code = ?"
+	rows, err := r.db.Query(query, walletCode)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (r *Repo) getTransfers(walletID int64) ([]*Transfer, error) {
 	transfers := make([]*Transfer, 0)
 	for rows.Next() {
 		transfer := &Transfer{}
-		rows.Scan(&transfer.Amount, &transfer.CreatedAt, &transfer.ToWalletID)
+		rows.Scan(&transfer.Amount, &transfer.CreatedAt, &transfer.ToWalletCode)
 		transfers = append(transfers, transfer)
 	}
 
@@ -132,7 +132,7 @@ func (r *Repo) getWallets(owner *int64) ([]*Wallet, error) {
 		wg.Add(1)
 
 		go func(wallet *Wallet) {
-			transfers, _ := r.getTransfers(wallet.ID)
+			transfers, _ := r.getTransfers(wallet.Code)
 			wallet.Transfers = transfers
 			walletsCh <- wallet
 			wg.Done()
@@ -152,10 +152,10 @@ func (r *Repo) getWallets(owner *int64) ([]*Wallet, error) {
 	return wallets, nil
 }
 
-func (r *Repo) replenishWallet(owner int64, amount int64, walletID int64) error {
-	query := "SELECT COUNT(*) FROM wallets WHERE owner = ? AND id = ?"
+func (r *Repo) replenishWallet(owner int64, amount int64, walletCode string) error {
+	query := "SELECT COUNT(*) FROM wallets WHERE owner = ? AND code = ?"
 	var count int64
-	err := r.db.QueryRow(query, owner, walletID).Scan(&count)
+	err := r.db.QueryRow(query, owner, walletCode).Scan(&count)
 	if err != nil {
 		return fmt.Errorf("replenishWallet: %w", err)
 	}
@@ -163,8 +163,8 @@ func (r *Repo) replenishWallet(owner int64, amount int64, walletID int64) error 
 		return fmt.Errorf("replenishWallet: %w", invalidWallet)
 	}
 
-	query = "UPDATE wallets SET balance = balance + ? WHERE owner = ? AND id = ?"
-	_, err = r.db.Exec(query, amount, owner, walletID)
+	query = "UPDATE wallets SET balance = balance + ? WHERE owner = ? AND code = ?"
+	_, err = r.db.Exec(query, amount, owner, walletCode)
 	if err != nil {
 		return fmt.Errorf("replenishWallet: %w", err)
 	}
@@ -172,10 +172,10 @@ func (r *Repo) replenishWallet(owner int64, amount int64, walletID int64) error 
 	return nil
 }
 
-func (r *Repo) transferMoney(owner int64, fromWalletID int64, toWalletID int64, amount int64) error {
-	query := "SELECT balance FROM wallets WHERE owner = ? AND id = ?"
+func (r *Repo) transferMoney(owner int64, fromWalletCode string, toWalletCode string, amount int64) error {
+	query := "SELECT balance FROM wallets WHERE owner = ? AND code = ?"
 	var balance int64
-	err := r.db.QueryRow(query, owner, fromWalletID).Scan(&balance)
+	err := r.db.QueryRow(query, owner, fromWalletCode).Scan(&balance)
 
 	if err != nil {
 		return fmt.Errorf("transferMoney: %w", err)
@@ -190,17 +190,17 @@ func (r *Repo) transferMoney(owner int64, fromWalletID int64, toWalletID int64, 
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE wallets SET balance = balance - ? WHERE id = ?", amount, fromWalletID)
+	_, err = tx.ExecContext(ctx, "UPDATE wallets SET balance = balance - ? WHERE code = ?", amount, fromWalletCode)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE wallets SET balance = balance + ? WHERE id = ?", amount, toWalletID)
+	_, err = tx.ExecContext(ctx, "UPDATE wallets SET balance = balance + ? WHERE code = ?", amount, toWalletCode)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO transfers (amount, from_wallet_id, to_wallet_id) VALUES (?, ?, ?)", amount, fromWalletID, toWalletID)
+	_, err = tx.ExecContext(ctx, "INSERT INTO transfers (amount, from_wallet_code, to_wallet_code) VALUES (?, ?, ?)", amount, fromWalletCode, toWalletCode)
 	if err != nil {
 		tx.Rollback()
 		return err

@@ -78,8 +78,8 @@ func (s *Server) createWallet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) replenishWallet(w http.ResponseWriter, r *http.Request) {
 	query := struct {
-		Wallet int64 `json:"wallet_id"`
-		Amount int64 `json:"amount"`
+		WalletCode string `json:"wallet_code"`
+		Amount     int64  `json:"amount"`
 	}{}
 	err := json.NewDecoder(r.Body).Decode(&query)
 	if err != nil {
@@ -93,11 +93,11 @@ func (s *Server) replenishWallet(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
-	err = s.repo.replenishWallet(payload.ID, query.Amount, query.Wallet)
+	err = s.repo.replenishWallet(payload.ID, query.Amount, query.WalletCode)
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, "Error while topping up the wallet")
+		fmt.Fprint(w, err.Error())
 		return
 	}
 
@@ -107,9 +107,9 @@ func (s *Server) replenishWallet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 	query := struct {
-		ToWallet   int64 `json:"to_wallet_id"`
-		FromWallet int64 `json:"from_wallet_id"`
-		Amount     int64 `json:"amount"`
+		ToWalletCode   string `json:"to_wallet_code"`
+		FromWalletCode string `json:"from_wallet_code"`
+		Amount         int64  `json:"amount"`
 	}{}
 	err := json.NewDecoder(r.Body).Decode(&query)
 	if err != nil {
@@ -122,7 +122,7 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
-	err = s.repo.transferMoney(payload.ID, query.FromWallet, query.ToWallet, query.Amount)
+	err = s.repo.transferMoney(payload.ID, query.FromWalletCode, query.ToWalletCode, query.Amount)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprint(w, err.Error())
@@ -163,6 +163,21 @@ func (s *Server) listWallets(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, string(buf))
 }
 
+func CORS(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		if r.Method == "OPTIONS" {
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token, Authorization")
+			return
+		} else {
+			h.ServeHTTP(w, r)
+		}
+	})
+}
+
 func main() {
 	config, err := util.LoadConfig(".")
 	if err != nil {
@@ -193,5 +208,5 @@ func main() {
 	adminRouter.Use(server.authorizatonCheckMiddleware, server.adminCheckMiddleware)
 	adminRouter.HandleFunc("/list_wallets", server.listWallets).Methods("GET")
 
-	http.ListenAndServe(fmt.Sprintf(":%s", config.Port), r)
+	http.ListenAndServe(fmt.Sprintf(":%s", config.Port), CORS(r))
 }
