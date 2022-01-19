@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 
@@ -105,9 +106,9 @@ func (r *Repo) createWallet(owner int64) (*Wallet, error) {
 func (r *Repo) getWallets(owner *int64) ([]*Wallet, error) {
 	var query string
 	if owner == nil {
-		query = "SELECT id, owner, code, created_at, balance FROM wallets"
+		query = "SELECT id, owner, code, created_at, balance FROM wallets ORDER BY created_at DESC"
 	} else {
-		query = "SELECT id, owner, code, created_at, balance FROM wallets WHERE owner = ?"
+		query = "SELECT id, owner, code, created_at, balance FROM wallets WHERE owner = ? ORDER BY created_at DESC"
 	}
 
 	var rows *sql.Rows
@@ -148,6 +149,10 @@ func (r *Repo) getWallets(owner *int64) ([]*Wallet, error) {
 	for wallet := range walletsCh {
 		wallets = append(wallets, wallet)
 	}
+
+	sort.SliceStable(wallets, func(i, j int) bool {
+		return wallets[i].CreatedAt.After(wallets[j].CreatedAt)
+	})
 
 	return wallets, nil
 }
